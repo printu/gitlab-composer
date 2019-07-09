@@ -1,7 +1,8 @@
 <?php
 
 namespace GitlabComposer;
-require __DIR__ . '/../vendor/autoload.php';
+
+require __DIR__.'/../vendor/autoload.php';
 try {
     $confs = (new Config())->getConfs();
     $a = new Auth();

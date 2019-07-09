@@ -3,19 +3,19 @@
 namespace GitlabComposer;
 
 use Gitlab\Api\Projects;
+use Gitlab\Api\Repositories;
 use Gitlab\Client;
 use Gitlab\Exception\RuntimeException;
 
-
 class RegistryBuilder
 {
-
-    protected $packages_file = __DIR__ . '/../cache/packages.json';
-    protected $static_file = __DIR__ . '/../confs/static-repos.json';
+    protected $packages_file = __DIR__.'/../cache/packages.json';
+    protected $static_file = __DIR__.'/../confs/static-repos.json';
 
     protected $confs;
 
-    public function setConfig($confs){
+    public function setConfig($confs)
+    {
         $this->confs = $confs;
     }
 
@@ -25,24 +25,21 @@ class RegistryBuilder
     function outputFile()
     {
         $file = $this->packages_file;
-        if (!file_exists($this->packages_file)){
+        if (!file_exists($this->packages_file)) {
             $this->build();
         }
         $mtime = filemtime($file);
 
         header('Content-Type: application/json');
-        header('Last-Modified: ' . gmdate('r', $mtime));
+        header('Last-Modified: '.gmdate('r', $mtime));
         header('Cache-Control: max-age=0');
 
         if (!empty($_SERVER['HTTP_IF_MODIFIED_SINCE']) && ($since = strtotime($_SERVER['HTTP_IF_MODIFIED_SINCE'])) && $since >= $mtime) {
-            header('HTTP/1.0 304 Not Modified');
+            http_response_code(304);
         } else {
             readfile($file);
         }
-
     }
-
-
 
     /**
      * Retrieves some information about a project's composer.json
@@ -51,7 +48,8 @@ class RegistryBuilder
      * @param string $ref commit id
      * @return array|false
      */
-    public function fetch_composer($project, $ref) {
+    public function fetch_composer($project, $ref)
+    {
         $repos = $this->repos;
         $allow_package_name_mismatches = $this->confs['allow_package_name_mismatch'];
         try {
@@ -81,22 +79,22 @@ class RegistryBuilder
      * @param array $ref commit id
      * @return array   [$version => ['name' => $name, 'version' => $version, 'source' => [...]]]
      */
-    public function fetch_ref($project, $ref) {
-
+    public function fetch_ref($project, $ref)
+    {
         static $ref_cache = [];
 
-        $ref_key = md5(serialize($project) . serialize($ref));
+        $ref_key = md5(serialize($project).serialize($ref));
 
         if (!isset($ref_cache[$ref_key])) {
             if (preg_match('/^v?\d+\.\d+(\.\d+)*(\-(dev|patch|alpha|beta|RC)\d*)?$/', $ref['name'])) {
                 $version = $ref['name'];
             } else {
-                $version = 'dev-' . $ref['name'];
+                $version = 'dev-'.$ref['name'];
             }
             if (($data = $this->fetch_composer($project, $ref['commit']['id'])) !== false) {
                 $data['version'] = $version;
                 $data['source'] = [
-                    'url' => $project[method . '_url_to_repo'],
+                    'url' => $project[method.'_url_to_repo'],
                     'type' => 'git',
                     'reference' => $ref['commit']['id'],
                 ];
@@ -110,6 +108,9 @@ class RegistryBuilder
         return $ref_cache[$ref_key];
     }
 
+    /**
+     * @var Repositories
+     */
     protected $repos;
     /**
      * @var $projects Projects
@@ -120,28 +121,28 @@ class RegistryBuilder
     /**
      * update from a webhook
      */
-    public function update() {
+    public function update()
+    {
         //get post data
         $data = json_decode(file_get_contents('php://input'), true);
         $client = $this->getClient();
         $this->repos = $repos = $client->api('repositories');
         $project = $data['project'];
-        $project[method . '_url_to_repo']  = $project[method . '_url'];
+        $project[method.'_url_to_repo'] = $project[method.'_url'];
 
         $ref_name = $data['ref'];
-        $ref_name = str_replace('refs/tags/','', $ref_name);
-        $ref_name = str_replace('refs/heads/','', $ref_name);
+        $ref_name = str_replace('refs/tags/', '', $ref_name);
+        $ref_name = str_replace('refs/heads/', '', $ref_name);
 
-        $ref = ['name'=>$ref_name, 'commit' => ['id'=> $data['checkout_sha']]];
+        $ref = ['name' => $ref_name, 'commit' => ['id' => $data['checkout_sha']]];
 
-
-        $file = __DIR__ . "/../cache/{$project['path_with_namespace']}.json";
-        $datas = json_decode(file_get_contents($file),true);
+        $file = __DIR__."/../cache/{$project['path_with_namespace']}.json";
+        $datas = json_decode(file_get_contents($file), true);
         foreach ($this->fetch_ref($project, $ref) as $version => $data) {
             $datas[$version] = $data;
         }
 
-        file_put_contents($file,json_encode($datas,JSON_PRETTY_PRINT));
+        file_put_contents($file, json_encode($datas, JSON_PRETTY_PRINT));
         unlink($this->packages_file);
         $this->build();
     }
@@ -184,10 +185,10 @@ class RegistryBuilder
          * Uses last_activity_at from the $project array, so no invalidation is needed
          *
          * @param array $project
-         * @return array Same as $fetch_refs
+         * @return array|null Same as $fetch_refs
          */
         $load_data = function ($project) use ($fetch_refs) {
-            $file = __DIR__ . "/../cache/{$project['path_with_namespace']}.json";
+            $file = __DIR__."/../cache/{$project['path_with_namespace']}.json";
             $mtime = strtotime($project['last_activity_at']);
 
             if (!is_dir(dirname($file))) {
@@ -198,7 +199,7 @@ class RegistryBuilder
                 if (filesize($file) > 0) {
                     return json_decode(file_get_contents($file));
                 } else {
-                    return false;
+                    return null;
                 }
             } elseif ($data = $fetch_refs($project)) {
                 if ($data) {
@@ -222,7 +223,7 @@ class RegistryBuilder
                         }
                     }
                 }
-                file_put_contents($file, json_encode($data,JSON_PRETTY_PRINT));
+                file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT));
                 touch($file, $mtime);
 
                 return $data;
@@ -231,7 +232,7 @@ class RegistryBuilder
                 fclose($f);
                 touch($file, $mtime);
 
-                return false;
+                return null;
             }
         };
 
@@ -245,6 +246,7 @@ class RegistryBuilder
             $allow_package_name_mismatches = $this->confs['allow_package_name_mismatch'];
             if ($allow_package_name_mismatches) {
                 $ref = $this->fetch_ref($project, $repos->branch($project['id'], $project['default_branch']));
+
                 return reset($ref)['name'];
             }
 
@@ -269,7 +271,6 @@ class RegistryBuilder
             }
         } else {
             // We have to get all accessible projects
-            $me = $client->api('users')->me();
             for ($page = 1; count($p = $projects->all(array('page' => $page, 'per_page' => 100))); $page++) {
                 foreach ($p as $project) {
                     $all_projects[] = $project;
@@ -293,7 +294,7 @@ class RegistryBuilder
                         if (isset($root->extra)) {
                             $source = '_source';
                             while (isset($root->extra->{$source})) {
-                                $source = '_' . $source;
+                                $source = '_'.$source;
                             }
                             $root->extra->{$source} = 'static';
                         } else {
@@ -314,7 +315,6 @@ class RegistryBuilder
     }
 
     /**
-     * @param $confs
      * @return Client
      */
     public function getClient()
@@ -322,7 +322,7 @@ class RegistryBuilder
         $confs = $this->confs;
         $client = Client::create($confs['endpoint']);
         $client->authenticate($confs['api_key'], Client::AUTH_URL_TOKEN);
+
         return $client;
     }
-
 }
